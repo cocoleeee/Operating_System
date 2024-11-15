@@ -249,8 +249,132 @@ get_pte()函数（位于`kern/mm/pmm.c`）用于在页表中查找或创建页�
 请在实验报告中简要说明你的设计实现过程。请回答如下问题：
  - 比较Clock页替换算法和FIFO算法的不同。
 
+##### 填写的代码如下
+使用list_init初始化pra_list_head为空链表，令curr_ptr指向表头，将mm的私有成员指针指向pra_list_head
+```
+/*
+ * (2) _fifo_init_mm: init pra_list_head and let  mm->sm_priv point to the addr of pra_list_head.
+ *              Now, From the memory control struct mm_struct, we can access FIFO PRA
+ */
+static int
+_clock_init_mm(struct mm_struct *mm)
+{     
+     /*LAB3 EXERCISE 4: YOUR CODE*/ 
+     // 初始化pra_list_head为空链表
+     // 初始化当前指针curr_ptr指向pra_list_head，表示当前页面替换位置为链表头
+     // 将mm的私有成员指针指向pra_list_head，用于后续的页面替换算法操作
+     //cprintf(" mm->sm_priv %x in fifo_init_mm\n",mm->sm_priv);
+     
+     list_init(&pra_list_head);
+     curr_ptr = &pra_list_head;
+     mm->sm_priv = &pra_list_head;
+     
+     return 0;
+}
+
+```
+
+设置页面可交换，表示当前页面正要被使用，将其添加到链表尾部并设置visited
+```
+/*
+ * (3)_fifo_map_swappable: According FIFO PRA, we should link the most recent arrival page at the back of pra_list_head qeueue
+ */
+static int
+_clock_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
+{
+    list_entry_t *entry=&(page->pra_page_link);
+ 
+    assert(entry != NULL && curr_ptr != NULL);
+    //record the page access situlation
+    /*LAB3 EXERCISE 4: YOUR CODE*/ 
+    // link the most recent arrival page at the back of the pra_list_head qeueue.
+    // 将页面page插入到页面链表pra_list_head的末尾
+    // 将页面的visited标志置为1，表示该页面已被访问
+    
+    list_entry_t *head=(list_entry_t*) mm->sm_priv;
+    list_add(head, entry);
+    page->visited = 1;   
+    
+    return 0;
+}
+```
+在循环开始时检查当前指针是否回到链表的头部。如果是头部，curr_ptr 被更新为头部的前一个节点并跳过当前循环，继续检查下一个页面。
+
+如果当前页面未被访问过（visited == 0），则打印当前页面指针（cprintf），更新 curr_ptr 为当前页面的前一个节点（curr_ptr = list_prev(curr_ptr)），从链表中删除当前页面（list_del(list_next(curr_ptr))）。这里需要注意，删除的是 list_next(curr_ptr)，这意味着删除的是当前页面的下一个节点，而 curr_ptr 已经被更新为前一个节点。将该页面赋给 ptr_page，并返回 0，结束循环。
+
+如果当前页面已经被访问过（visited == 1），则将其 visited 标志重置为 0，表示该页面已被重新访问。然后继续将 curr_ptr 更新为当前页面的前一个节点，继续遍历下一个页面。
+```
+/*
+ *  (4)_fifo_swap_out_victim: According FIFO PRA, we should unlink the  earliest arrival page in front of pra_list_head qeueue,
+ *                            then set the addr of addr of this page to ptr_page.
+ */
+static int
+_clock_swap_out_victim(struct mm_struct *mm, struct Page ** ptr_page, int in_tick)
+{
+     list_entry_t *head=(list_entry_t*) mm->sm_priv;
+     assert(head != NULL);
+     assert(in_tick==0);
+     /* Select the victim */
+     //(1)  unlink the  earliest arrival page in front of pra_list_head qeueue
+     //(2)  set the addr of addr of this page to ptr_page
+    while (1) {
+        /*LAB3 EXERCISE 4: YOUR CODE*/ 
+        // 编写代码
+        // 遍历页面链表pra_list_head，查找最早未被访问的页面
+        // 获取当前页面对应的Page结构指针
+        // 如果当前页面未被访问，则将该页面从页面链表中删除，并将该页面指针赋值给ptr_page作为换出页面
+        // 如果当前页面已被访问，则将visited标志置为0，表示该页面已被重新访问
+        if(curr_ptr == head){
+            curr_ptr = list_prev(curr_ptr);
+            continue;
+        }
+        struct Page* curr_page = le2page(curr_ptr,pra_page_link);
+        if(curr_page->visited == 0){
+            cprintf("curr_ptr %p\n", curr_ptr);
+            curr_ptr = list_prev(curr_ptr);
+            list_del(list_next(curr_ptr));
+            *ptr_page = curr_page;
+            return 0;
+        }
+        curr_page->visited = 0;
+        curr_ptr = list_prev(curr_ptr);
+    }
+    return 0;
+}
+```
+
+##### 运行结果如下
+make qemu后
+![](./photos/1.png)
+![](./photos/2.png)
+![](./photos/3.png)
+
+make grade后
+![](./photos/4.png)
+
+
+##### Clock页替换算法和FIFO算法的不同
+
+FIFO 是一种非常简单的页面替换算法，它没有考虑页面的访问历史，仅仅根据页面进入内存的时间顺序来决定替换哪个页面。即最早进入内存的页面将最早被淘汰，而最后进入内存的页面将最后被淘汰。它的主要缺点是无法避免 Belady's anomaly，可能会导致较高的缺页率。
+
+Clock 算法则是对 FIFO 的一种优化，考虑了页面的访问情况，减少了不常用页面被替换的概率，因此在大多数情况下，它比 FIFO 更加高效。它通过模拟环形链表的方式，类似时钟的机制和访问位来做页面替换，通常能够避免 FIFO 的缺陷，提供更好的性能。
+
 #### 练习5：阅读代码和实现手册，理解页表映射方式相关知识（思考题）
 如果我们采用”一个大页“ 的页表映射方式，相比分级页表，有什么好处、优势，有什么坏处、风险？
+
+##### 好处：
+1.更高效的内存访问，减少多级页表查找：当使用大页时，虚拟地址到物理地址的映射更加直接，从而减少了在分级页表中多级查找的开销。大页可能使得内存访问更加高效，尤其是对于内存密集型应用程序。
+
+2.提高TLB命中率，减少TLB缺失：在一个大页中，相同的页表条目可以映射更多的虚拟地址，这意味着只有较少的页表条目需要在TLB中缓存。这可以降低TLB缓存失效的概率，提高内存访问性能。
+
+
+##### 坏处：
+
+1.内存碎片：操作系统需要分配连续的物理内存来满足大页的需求。这可能会导致内存资源浪费和不规则的内存分配。
+
+2.更复杂的内存管理：大页的管理会比分级页表需要更多的操作系统支持和硬件复杂性，包括处理页错误和页面交换。
+
+3.不灵活：大页不适合小内存需求的应用程序。
 
 #### 扩展练习 Challenge：实现不考虑实现开销和效率的LRU页替换算法（需要编程）
 challenge部分不是必做部分，不过在正确最后会酌情加分。需写出有详细的设计、分析和测试的实验报告。完成出色的可获得适当加分。
