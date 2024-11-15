@@ -16,7 +16,14 @@
 至少正确指出10个不同的函数分别做了什么？如果少于10个将酌情给分。我们认为只要函数原型不同，就算两个不同的函数。要求指出对执行过程有实际影响,删去后会导致输出结果不同的函数（例如assert）而不是cprintf这样的函数。如果你选择的函数不能完整地体现”从换入到换出“的过程，比如10个函数都是页面换入的时候调用的，或者解释功能的时候只解释了这10个函数在页面换入时的功能，那么也会扣除一定的分数
 
 
-### 1. `struct vma_struct`（虚拟内存区域结构体）
+init--->swap_init--->check_swap--->check_content_access--->sm->check_swap()--->
+发生缺页异常--->trap()--->exception_handler--->pgfault_handler--->do_pgfault--->swap_in、page_insert、swap_map_swappable
+
+swap_in分支：swap_in->alloc_page--->alloc_pages--->swap_out--->sm->swap_out_victim
+
+page_insert分支：page_insert--->tlb_validate
+
+###  `struct vma_struct`（虚拟内存区域结构体）
 ```c
 struct vma_struct {
     struct mm_struct *vm_mm;      // 指向管理这个VMA的mm_struct结构体
@@ -31,7 +38,7 @@ struct vma_struct {
 - `list_link` 是一个链表节点，用于将多个VMA按起始地址排序链接起来，方便查找。
 - `vm_mm` 指向`mm_struct`，它表示一个进程的内存管理结构。
 
-### 2. `struct mm_struct`（内存管理结构体）
+###  `struct mm_struct`（内存管理结构体）
 ```c
 struct mm_struct {
     list_entry_t mmap_list;       // 一个按VMA起始地址排序的链表，包含所有VMA
@@ -50,7 +57,7 @@ struct mm_struct {
 
 
 
-### 1. `_fifo_init_mm`
+###  `_fifo_init_mm`
 ```c
 static int _fifo_init_mm(struct mm_struct *mm)
 {     
@@ -61,7 +68,7 @@ static int _fifo_init_mm(struct mm_struct *mm)
 ```
 - 该函数初始化FIFO页面替换算法的数据结构。它首先通过`list_init`初始化一个双向链表`pra_list_head`，然后将其地址保存在`mm->sm_priv`中。`mm->sm_priv`是`mm_struct`结构体中的一个字段，指向管理页面替换队列的链表。
 
-### 2. `_fifo_map_swappable`
+###  `_fifo_map_swappable`
 ```c
 static int _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
 {
@@ -99,7 +106,7 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - 该函数选择并淘汰FIFO队列中最旧的页面（即队列头部的页面）。首先，它获取队列头的前一个元素，然后通过`list_del`从队列中删除该页面。`le2page`宏将链表节点转换为`struct Page`类型，并通过`ptr_page`返回被淘汰的页面。
 
 
-### 1. `swap_out` 函数
+###  `swap_out` 函数
 
 #### 功能：
 `swap_out` 负责选择页面并将其交换到磁盘。具体操作是选择 `n` 个页面作为受害者，写入交换空间并释放页面。
@@ -127,7 +134,7 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - **`get_pte`**：获取页面的页表项。
 - **`tlb_invalidate`**：刷新 TLB。
 
-### 2. `swap_in` 函数
+###  `swap_in` 函数
 
 #### 功能：
 `swap_in` 负责将一个页面从交换空间加载到内存中。
@@ -152,15 +159,11 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - **`swapfs_read`**：从交换空间加载页面到物理内存。
 - **`get_pte`**：获取页面的页表项。
 
-**主执行流：**init--->swap_init--->check_swap--->check_content_access--->sm->check_swap()--->发生缺页异常--->trap()--->exception_handler--->pgfault_handler--->do_pgfault--->swap_in、page_insert、swap_map_swappable
 
-swap_in分支：swap_in->alloc_page--->alloc_pages--->swap_out--->sm->swap_out_victim
 
-page_insert分支：page_insert--->tlb_validate
 
-这个函数 `do_pgfault` 是操作系统处理页错误的一个核心部分。它负责在发生页错误时，检查并处理虚拟地址是否可以被访问或映射。如果没有有效的映射，它会尝试加载页面、映射物理内存，并进行必要的交换操作。下面是对代码的详细分析和补充说明。
 
-### 函数分析
+### `do_pgfault` 函数分析
 
 #### 1. **查找 VMA**
 ```c
@@ -230,7 +233,28 @@ else {
 3. 调用 `swap_map_swappable` 将该页面标记为可交换（即此页面可以被交换到磁盘上）。
 4. 更新页面的虚拟地址 `pra_vaddr`。
 
+PDX1(la) 和 PDX0(la)：这两个宏是为了从给定的线性地址la中提取页目录索引。它们通过右移适当的位数然后执行位与操作来获取目标索引。
 
+PTX(la)：此宏从线性地址la中提取页表索引。
+
+PPN(la)：从线性地址la中提取页号字段，这实质上是为了获取物理页号。
+
+PGOFF(la)：此宏用于获取线性地址la中的页内偏移量。
+
+PGADDR(d1, d0, t, o)：此宏使用页目录索引、页表索引和偏移量构建线性地址。
+
+PTE_ADDR(pte) 和 PDE_ADDR(pde)：这两个宏从页表或页目录条目中提取物理地址。它们首先通过位与操作清除条目的标志位，然后左移适当的位数。
+页目录和页表常数：以下几个定义与页的大小、页表大小和页目录大小有关：
+
+NPDEENTRY 和 NPTEENTRY：它们定义了每个页目录和每个页表中的条目数。
+
+PGSIZE：定义了由一个页面映射的字节数。
+
+PGSHIFT、PTSHIFT：它们是对应大小的对数。
+
+PTSIZE 和 PDSIZE：它们分别表示由页目录条目和页目录映射的字节数。
+
+位移常量：PTXSHIFT、PDX0SHIFT、PDX1SHIFT 和 PTE_PPN_SHIFT 代表在线性地址或物理地址中各部分的位偏移。
 
 #### 练习2：深入理解不同分页模式的工作原理（思考题）
 get_pte()函数（位于`kern/mm/pmm.c`）用于在页表中查找或创建页表项，从而实现对指定线性地址对应的物理页的访问和映射操作。这在操作系统中的分页机制下，是实现虚拟内存与物理内存之间映射关系非常重要的内容。
