@@ -172,6 +172,19 @@ proc_run(struct proc_struct *proc) {
         *   lcr3():                   Modify the value of CR3 register
         *   switch_to():              Context switching between two processes
         */
+       bool intr_flag;
+       //之前执行的进程是current，即将执行的是proc
+       struct proc_struct *prev = current, *next = proc;
+       //禁用中断
+       local_intr_save(intr_flag);
+       //正在运行的进程修改为proc
+        current = proc;
+        //将 CR3 寄存器指向目标进程的页目录表
+        lcr3(next->cr3);
+        //切换上下文
+        switch_to(&(prev->context), &(next->context));
+       //恢复中断状态
+       local_intr_restore(intr_flag);
        
     }
 }
