@@ -79,10 +79,10 @@ alloc_proc(void) {
 
 请在实验报告中简要说明你的设计实现过程。
 
-####'do_fork'函数实现
+#### `do_fork`函数实现
 
 **1.分配并初始化进程控制块**
-```
+```c
 proc = alloc_proc();
 
 if (proc == NULL) {
@@ -92,7 +92,7 @@ if (proc == NULL) {
 调用`alloc_proc`函数分配一个新的进程控制块并初始化。如果分配失败（返回NULL），则跳转到`fork_out`，返回错误码。
 
 **2.分配并初始化内核栈**
-```
+```c
  proc->parent = current;
 
 if (setup_kstack(proc) != 0) {
@@ -102,7 +102,7 @@ if (setup_kstack(proc) != 0) {
 将新进程的父进程设置为当前进程（current）,调用`setup_kstack`函数为新进程分配内核栈。如果分配失败，则跳转到`bad_fork_cleanup_kstack`标签进行清理.
 
 **3.根据clone_flags决定是复制还是共享内存管理系统**
-```
+```c
 if (copy_mm(clone_flags, proc) != 0) {
     goto bad_fork_cleanup_proc;
 }
@@ -110,13 +110,13 @@ if (copy_mm(clone_flags, proc) != 0) {
 根据`clone_flags`调用`copy_mm`函数，决定是复制进程的内存管理结构还是与之共享。如果是`CLONE_VM`,则共享。如果失败，则跳转到`bad_fork_cleanup_proc`标签进行清理。因为我们创建的是内核线程，因此在这个程序里，我们跳过了内存管理信息的复制。
 
 **4.设置进程的中断帧和上下文**
-```
+```c
 copy_thread(proc, stack, tf);
 ```
 调用`copy_thread`函数，在新进程的内核栈顶设置`trapframe`，并配置内核入口点和栈。此步骤不检查返回值，因为即使失败也应继续执行清理操作。
 
 **5.把设置好的进程加入链表**
-```
+```c
 bool intr_flag;
 local_intr_save(intr_flag);//禁用中断
 
@@ -130,13 +130,13 @@ local_intr_restore(intr_flag);
 使用`local_intr_save`函数保存当前中断状态，并禁用中断。这是为了防止在修改进程列表时发生中断，从而确保操作的原子性。调用`get_pid`函数为新进程分配一个唯一的PID。调用`hash_proc`函数将新进程添加到进程哈希表中。使用`list_add`函数将新进程添加到进程列表中。增加全局进程计数`nr_process`。使用`local_intr_restore`函数恢复之前保存的中断状态。
 
 **6.将新建的进程设为就绪态**
-```
+```c
 wakeup_proc(proc);
 ```
 调用`wakeup_proc`函数，将新进程的状态设置为`PROC_RUNNABLE`，使其可以被调度执行。
 
 **7.将返回值设为线程id**
-```
+```c
 ret = proc->pid;
 ```
 将返回值ret设置为新进程的PID。
