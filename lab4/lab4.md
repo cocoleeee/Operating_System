@@ -61,8 +61,88 @@ alloc_proc(void) {
 
 当进程从用户模式切换到内核模式时，用户模式下的状态(如寄存器)会被保存在 trapframe 中。内核完成处理后，可以使用这些信息来恢复进程的状态并继续用户模式下的执行。
 ### EX2
+创建一个内核线程需要分配和设置好很多资源。kernel_thread函数通过调用do_fork函数完成具体内核线程的创建工作。do_kernel函数会调用alloc_proc函数来分配并初始化一个进程控制块，但alloc_proc只是找到了一小块内存用以记录进程的必要信息，并没有实际分配这些资源。ucore一般通过do_fork实际创建新的内核线程。do_fork的作用是，创建当前内核线程的一个副本，它们的执行上下文、代码、数据都一样，但是存储位置不同。因此，我们实际需要"fork"的东西就是stack和trapframe。在这个过程中，需要给新内核线程分配资源，并且复制原进程的状态。你需要完成在kern/process/proc.c中的do_fork函数中的处理过程。它的大致执行步骤包括：
 
+调用alloc_proc，首先获得一块用户信息块。
 
+为进程分配一个内核栈。
+
+复制原进程的内存管理信息到新进程（但内核线程不必做此事）
+
+复制原进程上下文到新进程
+
+将新进程添加到进程列表
+
+唤醒新进程
+
+返回新进程号
+
+请在实验报告中简要说明你的设计实现过程。
+
+####'do_fork'函数实现
+
+**1.分配并初始化进程控制块**
+```
+proc = alloc_proc();
+
+if (proc == NULL) {
+   goto fork_out;
+}
+```
+调用`alloc_proc`函数分配一个新的进程控制块并初始化。如果分配失败（返回NULL），则跳转到`fork_out`，返回错误码。
+
+**2.分配并初始化内核栈**
+```
+ proc->parent = current;
+
+if (setup_kstack(proc) != 0) {
+   goto bad_fork_cleanup_kstack;
+}
+```
+将新进程的父进程设置为当前进程（current）,调用`setup_kstack`函数为新进程分配内核栈。如果分配失败，则跳转到`bad_fork_cleanup_kstack`标签进行清理.
+
+**3.根据clone_flags决定是复制还是共享内存管理系统**
+```
+if (copy_mm(clone_flags, proc) != 0) {
+    goto bad_fork_cleanup_proc;
+}
+```
+根据`clone_flags`调用`copy_mm`函数，决定是复制进程的内存管理结构还是与之共享。如果是`CLONE_VM`,则共享。如果失败，则跳转到`bad_fork_cleanup_proc`标签进行清理。因为我们创建的是内核线程，因此在这个程序里，我们跳过了内存管理信息的复制。
+
+**4.设置进程的中断帧和上下文**
+```
+copy_thread(proc, stack, tf);
+```
+调用`copy_thread`函数，在新进程的内核栈顶设置`trapframe`，并配置内核入口点和栈。此步骤不检查返回值，因为即使失败也应继续执行清理操作。
+
+**5.把设置好的进程加入链表**
+```
+bool intr_flag;
+local_intr_save(intr_flag);//禁用中断
+
+proc->pid = get_pid();//分配PID
+hash_proc(proc);
+list_add(&proc_list, &(proc->list_link));
+nr_process++;
+
+local_intr_restore(intr_flag);
+```
+使用`local_intr_save`函数保存当前中断状态，并禁用中断。这是为了防止在修改进程列表时发生中断，从而确保操作的原子性。调用`get_pid`函数为新进程分配一个唯一的PID。调用`hash_proc`函数将新进程添加到进程哈希表中。使用`list_add`函数将新进程添加到进程列表中。增加全局进程计数`nr_process`。使用`local_intr_restore`函数恢复之前保存的中断状态。
+
+**6.将新建的进程设为就绪态**
+```
+wakeup_proc(proc);
+```
+调用`wakeup_proc`函数，将新进程的状态设置为`PROC_RUNNABLE`，使其可以被调度执行。
+
+**7.将返回值设为线程id**
+```
+ret = proc->pid;
+```
+将返回值ret设置为新进程的PID。
+
+#### ucore是否做到给每个新fork的线程一个唯一的id？
+是。在`get_pid`函数中，`next_safe` 下一个可安全分配的PID，即不会与现有进程冲突的PID。`last_pid` 上次分配的PID，作为本次分配的起点。在PID分配逻辑中，每次`get_pid`调用时，从`last_pid+1`开始寻找下一个可分配的PID，并检查是否需要重置 `next_safe` 和跳转到 `repeat`。如果 `last_pid `达到 `MAX_PID`，则重置为1，准备从头开始查找可用的PID，如果当前进程的PID大于 `last_pid `且 `next_safe `大于当前进程的PID，则更新 `next_safe`。
 
 ### EX3
 proc_run用于将指定的进程切换到CPU上运行。它的大致执行步骤包括：
