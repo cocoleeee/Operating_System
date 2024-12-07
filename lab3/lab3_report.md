@@ -16,14 +16,7 @@
 至少正确指出10个不同的函数分别做了什么？如果少于10个将酌情给分。我们认为只要函数原型不同，就算两个不同的函数。要求指出对执行过程有实际影响,删去后会导致输出结果不同的函数（例如assert）而不是cprintf这样的函数。如果你选择的函数不能完整地体现”从换入到换出“的过程，比如10个函数都是页面换入的时候调用的，或者解释功能的时候只解释了这10个函数在页面换入时的功能，那么也会扣除一定的分数
 
 
-init--->swap_init--->check_swap--->check_content_access--->sm->check_swap()--->
-发生缺页异常--->trap()--->exception_handler--->pgfault_handler--->do_pgfault--->swap_in、page_insert、swap_map_swappable
-
-swap_in分支：swap_in->alloc_page--->alloc_pages--->swap_out--->sm->swap_out_victim
-
-page_insert分支：page_insert--->tlb_validate
-
-###  `struct vma_struct`（虚拟内存区域结构体）
+### 1. `struct vma_struct`（虚拟内存区域结构体）
 ```c
 struct vma_struct {
     struct mm_struct *vm_mm;      // 指向管理这个VMA的mm_struct结构体
@@ -38,7 +31,7 @@ struct vma_struct {
 - `list_link` 是一个链表节点，用于将多个VMA按起始地址排序链接起来，方便查找。
 - `vm_mm` 指向`mm_struct`，它表示一个进程的内存管理结构。
 
-###  `struct mm_struct`（内存管理结构体）
+### 2. `struct mm_struct`（内存管理结构体）
 ```c
 struct mm_struct {
     list_entry_t mmap_list;       // 一个按VMA起始地址排序的链表，包含所有VMA
@@ -57,7 +50,7 @@ struct mm_struct {
 
 
 
-###  `_fifo_init_mm`
+### 1. `_fifo_init_mm`
 ```c
 static int _fifo_init_mm(struct mm_struct *mm)
 {     
@@ -68,7 +61,7 @@ static int _fifo_init_mm(struct mm_struct *mm)
 ```
 - 该函数初始化FIFO页面替换算法的数据结构。它首先通过`list_init`初始化一个双向链表`pra_list_head`，然后将其地址保存在`mm->sm_priv`中。`mm->sm_priv`是`mm_struct`结构体中的一个字段，指向管理页面替换队列的链表。
 
-###  `_fifo_map_swappable`
+### 2. `_fifo_map_swappable`
 ```c
 static int _fifo_map_swappable(struct mm_struct *mm, uintptr_t addr, struct Page *page, int swap_in)
 {
@@ -106,7 +99,7 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - 该函数选择并淘汰FIFO队列中最旧的页面（即队列头部的页面）。首先，它获取队列头的前一个元素，然后通过`list_del`从队列中删除该页面。`le2page`宏将链表节点转换为`struct Page`类型，并通过`ptr_page`返回被淘汰的页面。
 
 
-###  `swap_out` 函数
+### 1. `swap_out` 函数
 
 #### 功能：
 `swap_out` 负责选择页面并将其交换到磁盘。具体操作是选择 `n` 个页面作为受害者，写入交换空间并释放页面。
@@ -134,7 +127,7 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - **`get_pte`**：获取页面的页表项。
 - **`tlb_invalidate`**：刷新 TLB。
 
-###  `swap_in` 函数
+### 2. `swap_in` 函数
 
 #### 功能：
 `swap_in` 负责将一个页面从交换空间加载到内存中。
@@ -159,11 +152,15 @@ static int _fifo_swap_out_victim(struct mm_struct *mm, struct Page **ptr_page, i
 - **`swapfs_read`**：从交换空间加载页面到物理内存。
 - **`get_pte`**：获取页面的页表项。
 
+**主执行流：**init--->swap_init--->check_swap--->check_content_access--->sm->check_swap()--->发生缺页异常--->trap()--->exception_handler--->pgfault_handler--->do_pgfault--->swap_in、page_insert、swap_map_swappable
 
+swap_in分支：swap_in->alloc_page--->alloc_pages--->swap_out--->sm->swap_out_victim
 
+page_insert分支：page_insert--->tlb_validate
 
+这个函数 `do_pgfault` 是操作系统处理页错误的一个核心部分。它负责在发生页错误时，检查并处理虚拟地址是否可以被访问或映射。如果没有有效的映射，它会尝试加载页面、映射物理内存，并进行必要的交换操作。下面是对代码的详细分析和补充说明。
 
-### `do_pgfault` 函数分析
+### 函数分析
 
 #### 1. **查找 VMA**
 ```c
@@ -233,40 +230,55 @@ else {
 3. 调用 `swap_map_swappable` 将该页面标记为可交换（即此页面可以被交换到磁盘上）。
 4. 更新页面的虚拟地址 `pra_vaddr`。
 
-PDX1(la) 和 PDX0(la)：这两个宏是为了从给定的线性地址la中提取页目录索引。它们通过右移适当的位数然后执行位与操作来获取目标索引。
 
-PTX(la)：此宏从线性地址la中提取页表索引。
-
-PPN(la)：从线性地址la中提取页号字段，这实质上是为了获取物理页号。
-
-PGOFF(la)：此宏用于获取线性地址la中的页内偏移量。
-
-PGADDR(d1, d0, t, o)：此宏使用页目录索引、页表索引和偏移量构建线性地址。
-
-PTE_ADDR(pte) 和 PDE_ADDR(pde)：这两个宏从页表或页目录条目中提取物理地址。它们首先通过位与操作清除条目的标志位，然后左移适当的位数。
-页目录和页表常数：以下几个定义与页的大小、页表大小和页目录大小有关：
-
-NPDEENTRY 和 NPTEENTRY：它们定义了每个页目录和每个页表中的条目数。
-
-PGSIZE：定义了由一个页面映射的字节数。
-
-PGSHIFT、PTSHIFT：它们是对应大小的对数。
-
-PTSIZE 和 PDSIZE：它们分别表示由页目录条目和页目录映射的字节数。
-
-位移常量：PTXSHIFT、PDX0SHIFT、PDX1SHIFT 和 PTE_PPN_SHIFT 代表在线性地址或物理地址中各部分的位偏移。
 
 #### 练习2：深入理解不同分页模式的工作原理（思考题）
 get_pte()函数（位于`kern/mm/pmm.c`）用于在页表中查找或创建页表项，从而实现对指定线性地址对应的物理页的访问和映射操作。这在操作系统中的分页机制下，是实现虚拟内存与物理内存之间映射关系非常重要的内容。
  - get_pte()函数中有两段形式类似的代码， 结合sv32，sv39，sv48的异同，解释这两段代码为什么如此相像。
+#### 原因：
+##### 异同
+sv32，sv39，sv48这些都是RISC-V架构中支持的页表格式，分别用于32位、39位和48位的虚拟地址空间。虽然它们支持的虚拟地址空间大小不同，但它们的页表结构在逻辑上是相似的，都是由多级页表组成的。SV32：包含两级页表，页目录（Page Directory）和页表（Page Table）。SV39：包含三级页表，页目录（Page Directory）、页上级目录（Page Upper Directory）和页表（Page Table）。SV48：也包含三级页表，但每级页表的大小和偏移量字段更大，以支持更大的虚拟地址空间。
+##### get_pte函数中的两段代码
+`get_pte`中的两段相似的代码分别对应于在第一、第二级页表（PDX1，PDX2）的查找/创建过程。首先 `get_pte`函数使用`PDX1(la)`宏计算虚拟地址la在页上级目录中的索引，并且在页目录中找到对应的地址，并且判断其`PTE-V`标志位是否为真（表示可用）。若可用则继续寻找下一级目录，若不可用则根据 create 的值决定是否调用`alloc_page()`开辟一个新的下一级页表，之后设置引用计数、清零内存、创建页上级目录条目。之后再对下一级页表进行同样的操作，使用`PDX0(la)`宏计算虚拟地址la在页表中的索引，其中通过`PDE_ADDR`得到页表项对应的物理地址。最后根据得到的 pdep0 的页表项找到最低一级页表项的内容并且返回。
+###### 相似
+由于多级页表的递归性质和页表项设置的相似性，导致在处理这些页表时，代码逻辑上非常相似。
+
+ 
  - 目前get_pte()函数将页表项的查找和页表项的分配合并在一个函数里，你认为这种写法好吗？有没有必要把两个功能拆开？
+#####可以不拆开
+调用者只需要调用一个函数就可以完成页表项的查找（如果存在）或分配（如果不存在），这使得调用逻辑更加简单。
+
 
 #### 练习3：给未被映射的地址映射上物理页（需要编程）
 补充完成do_pgfault（mm/vmm.c）函数，给未被映射的地址映射上物理页。设置访问权限 的时候需要参考页面所在 VMA 的权限，同时需要注意映射物理页时需要操作内存控制 结构所指定的页表，而不是内核的页表。
+
+##### 填写的代码如下
+若查找到的页表项并不是 0，则当前页表项地址上存储的是一个一个已经被换到“硬盘”上的页，此时需要使用 `swap_in`将页面换入，并且将换入的页面使用`page_insert`在页表中建立与物理地址的映射，并且使用`swap_map_swappable`调用 swap_manager 中的对应函数以维护页面置换管理。最后，需要将 page->pra_vaddr 设置为 addr。
+```c
+/*
+*swap_in(mm, addr, &page) : 分配一个内存页，然后根据
+*PTE中的swap条目的addr，找到磁盘页的地址，将磁盘页的内容读入这个内存页
+*page_insert ： 建立一个Page的phy addr与线性addr la的映射
+*swap_map_swappable ： 设置页面可交换
+*/
+ swap_in(mm,addr,&page);
+ page_insert(mm->pgdir,page,addr,perm);
+ swap_map_swappable(mm,addr,page,1);
+
+```
+
 请在实验报告中简要说明你的设计实现过程。请回答如下问题：
  - 请描述页目录项（Page Directory Entry）和页表项（Page Table Entry）中组成部分对ucore实现页替换算法的潜在用处。
+##### 用处：
+页目录项和页表项中低八位用于表示页表项的属性和权限，包含了页面的状态信息，如是否合法、页面的访问权限等。当一个页面被换出时，页表项位置的值会被如下设置：`*ptep = (page->pra_vaddr / PGSIZE + 1) << 8`;这会将对应页的虚拟页号加一并左移，保证其低八位为 0，并且整个值不为 0（表示是换出而不是被新建）。页表项记录了虚拟地址到物理地址的映射，mmu需要通过页表项才能获得虚拟地址对应的物理地址。在 sv39 中，页表项中的一些标记位和保留位（RSW）可以在页替换算法中用于实现一些功能。例如，A (Accessed) 可以表示一个页是否被访问（写或读）过，D (Dirty) 表示页是否被修改（写入）过，这两个标记位可以用于实现扩展的 Clock 页面置换算法。
+
  - 如果ucore的缺页服务例程在执行过程中访问内存，出现了页访问异常，请问硬件要做哪些事情？
+#####硬件
+当出现页访问异常时，此时会固定的跳转到初始化stvec时设置好的处理程序地址，也即`__alltraps`处，进行上下文保存，以及将发生缺页中断的地址保存到trapframe中。然后跳转到中断处理函数`trap()`，具体由`do_pgfault`处理，解决完毕返回到`__trapret`恢复保存的寄存器。也即上下文，通过sret跳转回原程序。我们的trapFrame传递了badvaddr给do_pgfault()函数，而这实际上是stval这个寄存器的数值（在旧版的RISCV标准里叫做sbadvaddr)，这个寄存器存储一些关于异常的数据，对于PageFault它存储的是访问出错的虚拟地址。
+
 - 数据结构Page的全局变量（其实是一个数组）的每一项与页表中的页目录项和页表项有无对应关系？如果有，其对应关系是啥？
+##### Page 与页目录项、页表项的对应关系
+Page数组的全局变量在操作系统中用于描述物理内存中的各个页面。每个Page数组的项都包含了一个物理页的相关信息，如该页是否已被分配、是否有效等。页目录项和页表项是分页式内存管理中的重要组成部分。页目录项通常指向一个页表，而页表项则指向具体的物理页面。当页目录项有效时，它指向一个页表。这个页表实际上也是由Page数组中的某个项描述的物理页所存储的。换句话说，页目页表项则直接指向具体的物理页面。这个物理页面同样由Page数组中的某个项来描述。因此，页表项保存的物理页面地址也对应于Page数组中的某一页。录项保存的物理页面地址（即某个页表）对应于Page数组中的某一页。Sv39 分页机制下，每一个页表所占用的空间刚好为一个页的大小。
 
 #### 练习4：补充完成Clock页替换算法（需要编程）
 通过之前的练习，相信大家对FIFO的页面替换算法有了更深入的了解，现在请在我们给出的框架上，填写代码，实现 Clock页替换算法（mm/swap_clock.c）。
