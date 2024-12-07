@@ -1,4 +1,65 @@
-### EX1
+### EX1:分配并初始化一个进程控制块（需要编码）
+
+alloc_proc 函数（位于 kern/process/proc.c 中）负责分配并返回一个新的 struct proc_struct 结构，用于存储新建立的内核线程的管理信息。ucore 需要对这个结构进行最基本的初始化，你需要完成这个初始化过程。 
+
+【提示】在 alloc_proc 函数的实现中，需要初始化的 proc_struct 结构中的成员变量至少包括：state/pid/runs/kstack/need_resched/parent/mm/context/tf/cr3/ffags/name。
+
+请在实验报告中简要说明你的设计实现过程。请回答如下问题：
+
+* *请说明 proc_struct 中 struct context context 和 struct trapframe tf 成员变量含义和在本实验中的作用是啥？（提示通过看代码和编程调试可以判断出来）*
+
+```
+static struct proc_struct *
+alloc_proc(void) {
+    struct proc_struct *proc = kmalloc(sizeof(struct proc_struct));
+    if (proc != NULL) {
+    //LAB4:EXERCISE1 YOUR CODE
+    /*
+     * below fields in proc_struct need to be initialized
+     *       enum proc_state state;                      // Process state
+     *       int pid;                                    // Process ID
+     *       int runs;                                   // the running times of Proces
+     *       uintptr_t kstack;                           // Process kernel stack
+     *       volatile bool need_resched;                 // bool value: need to be rescheduled to release CPU?
+     *       struct proc_struct *parent;                 // the parent process
+     *       struct mm_struct *mm;                       // Process's memory management field
+     *       struct context context;                     // Switch here to run process
+     *       struct trapframe *tf;                       // Trap frame for current interrupt
+     *       uintptr_t cr3;                              // CR3 register: the base addr of Page Directroy Table(PDT)
+     *       uint32_t flags;                             // Process flag
+     *       char name[PROC_NAME_LEN + 1];               // Process name
+     */
+	proc->state = PROC_UNINIT;//设置进程为未初始化状态
+	proc->pid = -1;//设置进程id
+	proc->runs = 0;//设置进程运行次数
+	proc->kstack = 0;//设置内核栈地址
+	proc->need_resched = 0;//设置不需要重新调度
+	proc->parent = NULL;//设置父进程为空
+	proc->mm = NULL;//设置内存管理字段为空
+	memset(&(proc->context), 0, sizeof(struct context));//初始化上下文信息
+	proc->tf = NULL;//设置trapframe为空
+	proc->cr3 = boot_cr3;//设置cr3寄存器的值，页目录表（PDT）的基地址
+	proc->flags = 0;//设置进程标志
+	memset(proc->name, 0, PROC_NAME_LEN + 1);//初始化进程名为0
+
+    }
+    return proc;
+}
+```
+#### struct context context 成员变量含义和在本实验中的作用是啥？
+含义：struct context 结构体用于保存进程的上下文信息，包含了在进行进程切换（context switch）时所需保存的寄存器状态。这些寄存器状态包括程序计数器、栈指针、通用寄存器等。
+
+作用：保存和恢复进程的寄存器上下文，以支持进程切换。在内核进行调度（调度器切换进程）时，当前进程的上下文会被保存到 proc->context 中，调度器会加载下一个进程的上下文，以便恢复其运行状态。
+
+当进程被切换出去时，CPU 寄存器状态会保存在 proc->context 中。
+当进程被调度回来时，proc->context 中保存的寄存器状态会被恢复，继续执行该进程的代码。
+
+#### struct trapframe tf 成员变量含义和在本实验中的作用是啥？
+含义：struct trapframe 是用来保存中断/异常发生时的 CPU 状态的结构体，它记录了 CPU 的寄存器值、程序计数器（EIP）、栈指针（ESP）等信息，主要用于在中断、异常或系统调用发生时保存用户态和内核态之间的状态信息。
+
+作用：中断帧的指针，保存中断或系统调用发生时的 CPU 状态，以便在中断处理完成后，能够恢复进程的运行状态。
+
+当进程从用户模式切换到内核模式时，用户模式下的状态(如寄存器)会被保存在 trapframe 中。内核完成处理后，可以使用这些信息来恢复进程的状态并继续用户模式下的执行。
 ### EX2
 
 
