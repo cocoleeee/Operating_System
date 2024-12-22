@@ -348,7 +348,7 @@ PROC_UNINIT -- alloc_proc --> PROC_RUNNABLE -- do_fork --> PROC_RUNNABLE
 原因可能是Ucore的内核空间比较小，且没有实现调度算法，是直接通过init函数执行代码而创建了一个用户线程。
 
 
-### 需要理解的点
+### 需要理解的点(只是帮助我们自己理解，不算实验报告正文)
 #### memlayout
 SPP 位：sstatus 寄存器的第 8 位，用于指示进入 Supervisor 模式之前的特权级别。
 
