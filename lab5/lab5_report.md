@@ -302,6 +302,9 @@ ret = page_insert(to, npage, start, perm);
 请分析fork/exec/wait/exit的执行流程。重点关注哪些操作是在用户态完成，哪些是在内核态完成？内核态与用户态程序是如何交错执行的？内核态执行结果是如何返回给用户程序的？
 
 以exit为例
+
+执行流程如下：
+
 exit(user/lib/ulib.c)
 
 sys_exit(user/lib/syscall)
@@ -336,6 +339,17 @@ PROC_UNINIT -- alloc_proc --> PROC_RUNNABLE -- do_fork --> PROC_RUNNABLE
                                       v                          v
                               PROC_RUNNABLE -- wakeup_proc --> PROC_RUNNABLE
 
+
+### challenge
+
+*说明该用户程序是何时被预先加载到内存中的？与我们常用操作系统的加载有何区别，原因是什么？*
+编译时通过ld指令将用户态程序（编译链接到项目中。用户程序是在操作系统的内核一起被启动器加载到内存的，常用的操作系统不会把可执行文件加载进内存，而是运行时才加载。
+
+原因可能是Ucore的内核空间比较小，且没有实现调度算法，是直接通过init函数执行代码而创建了一个用户线程。
+
+
+### 需要理解的点
+#### memlayout
 SPP 位：sstatus 寄存器的第 8 位，用于指示进入 Supervisor 模式之前的特权级别。
 
 0：进入 Supervisor 模式之前处于 User 模式。
@@ -348,10 +362,6 @@ sepc 寄存器用于保存触发异常的指令地址。
 
     #sp为0，说明之前是内核态，我们刚才把内核栈指针换到了sscratch, 需要再拿回来
     #sp不为0 时，说明之前是用户态，sp里现在存的就是内核栈指针，sscratch里现在是用户栈指针
-
-### 需要理解的点
-#### memlayout
-
 ---
 
 ##### **物理内存映射**
